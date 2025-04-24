@@ -10,8 +10,8 @@
     - name: Configurer les adresses IP sur les interfaces VyOS
       vyos_config:
         lines:
-          - set interfaces ethernet vtnet3 address '10.10.4.2/24'
-          - set interfaces ethernet vtnet4 address '10.10.5.2/24'
+          - set interfaces ethernet eth0 address '10.10.4.2/24'
+          - set interfaces ethernet eth1 address '10.10.5.2/24'
         save: true
 
     # 2.b - VLANs et DHCP sur vmbr2 (admettons que ce soit vtnet5 ici)

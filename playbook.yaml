@@ -1,3 +1,12 @@
+all:
+  hosts:
+    vyos:
+      ansible_host: 10.10.5.2
+      ansible_connection: network_cli
+      ansible_network_os: vyos
+      ansible_user: vyos
+      ansible_password: vyos
+
 - name: Configure VyOS UTM interne 
   hosts: vyos
   gather_facts: no

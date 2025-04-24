@@ -5,7 +5,7 @@ all:
       ansible_connection: network_cli
       ansible_network_os: vyos
       ansible_user: vyos
-      ansible_password: vyos
+      ansible_password: root
 
 - name: Configure VyOS UTM interne 
   hosts: vyos

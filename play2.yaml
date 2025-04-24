@@ -1,0 +1,64 @@
+- name: Configure VyOS UTM interne
+  hosts: firewalls
+  gather_facts: no
+  connection: network_cli
+  collections:
+    - vyos.vyos
+
+  tasks:
+
+    # 2.a - Config réseau
+    - name: Configurer les adresses IP sur les interfaces VyOS
+      vyos_config:
+        lines:
+          - set interfaces ethernet eth0 address '10.10.4.2/24'
+          - set interfaces ethernet eth1 address '10.10.5.2/24'
+        save: true
+
+    # 2.b - VLANs et DHCP sur eth2 (ex-vmbr2/vtnet5)
+    - name: Configurer les VLANs et DHCP
+      vyos_config:
+        lines:
+          - set interfaces ethernet eth2 vif 10 address '192.168.10.1/24'
+          - set interfaces ethernet eth2 vif 20 address '192.168.20.1/24'
+          - set interfaces ethernet eth2 vif 30 address '192.168.30.1/24'
+
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 default-router '192.168.10.1'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 start '192.168.10.100'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 stop '192.168.10.200'
+
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 default-router '192.168.20.1'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 start '192.168.20.100'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 stop '192.168.20.200'
+
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 default-router '192.168.30.1'
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 range 0 start '192.168.30.100'
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 range 0 stop '192.168.30.200'
+        save: true
+
+    # 2.c - NAT pour que Ansible accède à OPNsense
+    - name: Ajouter règle NAT source pour trafic vers OPNsense/Internet
+      vyos_config:
+        lines:
+          - set nat source rule 100 description 'internet_ansible'
+          - set nat source rule 100 source address '10.10.5.0/24'
+          - set nat source rule 100 translation address '10.10.4.2'
+        save: true
+
+    # 2.d - Firewall zones (exemples simples à adapter)
+    - name: Créer règles de firewall entre zones
+      vyos_config:
+        lines:
+          - set firewall name FROM_DMZ_TO_LAN default-action drop
+          - set firewall name FROM_DMZ_TO_LAN rule 10 action accept
+          - set firewall name FROM_DMZ_TO_LAN rule 10 source address '192.168.10.0/24'
+          - set firewall name FROM_DMZ_TO_LAN rule 10 destination address '192.168.20.0/24'
+
+          - set firewall name FROM_LAN_TO_ADMIN default-action drop
+          - set firewall name FROM_LAN_TO_ADMIN rule 10 action accept
+          - set firewall name FROM_LAN_TO_ADMIN rule 10 source address '192.168.20.0/24'
+          - set firewall name FROM_LAN_TO_ADMIN rule 10 destination address '192.168.30.0/24'
+
+          - set interfaces ethernet eth2 vif 10 firewall in name FROM_DMZ_TO_LAN
+          - set interfaces ethernet eth2 vif 20 firewall in name FROM_LAN_TO_ADMIN
+        save: true

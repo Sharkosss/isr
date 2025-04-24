@@ -15,37 +15,58 @@
           - set interfaces ethernet eth1 address '10.10.5.2/24'
         save: true
 
-    # 2.b - VLANs et DHCP sur eth2 (ex-vmbr2/vtnet5)
+    # 2.b - VLANs et DHCP sur eth2 (ancien vmbr2)
     - name: Configurer les VLANs et DHCP
-      vyos_config:
+      vyos.vyos.vyos_config:
         lines:
           - set interfaces ethernet eth2 vif 10 address '192.168.10.1/24'
           - set interfaces ethernet eth2 vif 20 address '192.168.20.1/24'
           - set interfaces ethernet eth2 vif 30 address '192.168.30.1/24'
 
-          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 default-router '192.168.10.1'
+          # VLAN 10
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 subnet-id 1
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 option default-router '192.168.10.1'
           - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 start '192.168.10.100'
           - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 stop '192.168.10.200'
 
-          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 default-router '192.168.20.1'
+          # VLAN 20
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 subnet-id 2
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 option default-router '192.168.20.1'
           - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 start '192.168.20.100'
           - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 stop '192.168.20.200'
 
-          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 default-router '192.168.30.1'
+          # VLAN 30
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 subnet-id 3
+          - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 option default-router '192.168.30.1'
           - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 range 0 start '192.168.30.100'
           - set service dhcp-server shared-network-name VLAN30 subnet 192.168.30.0/24 range 0 stop '192.168.30.200'
         save: true
 
     # 2.c - NAT pour que Ansible accède à OPNsense
-    - name: Ajouter règle NAT source pour trafic vers OPNsense/Internet
+    - name: Vérifier si la règle NAT 100 existe déjà
+      vyos.vyos.vyos_command:
+        commands: "show nat source rules"
+      register: nat_output
+
+    - name: Afficher un message si la règle NAT 100 exsite déjà
+      debug:
+        msg: "OK. La règle NAT 100 existe déjà. Rien à faire."
+      when: "'rule 100' in nat_output.stdout[0]"
+
+    - name: Ajouter la règle NAT 100 si elle n'existe pas
       vyos_config:
         lines:
           - set nat source rule 100 description 'internet_ansible'
           - set nat source rule 100 source address '10.10.5.0/24'
-          - set nat source rule 100 translation address '10.10.4.2'
+          - set nat source rule 100 outbound-interface eth0
+          - set nat source rule 100 translation address masquerade
         save: true
+      when: "'rule 100' not in nat_output.stdout[0]"
 
-    # 2.d - Firewall zones (exemples simples à adapter)
+    # 2.d - Firewall zones
     - name: Créer règles de firewall entre zones
       vyos_config:
         lines:

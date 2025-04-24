@@ -1,4 +1,4 @@
-- name: Configure VyOS UTM interne
+- name: Configure VyOS UTM interne 
   hosts: vyos
   gather_facts: no
   collections:
@@ -61,3 +61,37 @@
           - set interfaces ethernet vtnet5 vif 10 firewall in name FROM_DMZ_TO_LAN
           - set interfaces ethernet vtnet5 vif 20 firewall in name FROM_LAN_TO_ADMIN
         save: true
+
+- name: Configuration IDS et Proxy sur OPNsense
+  hosts: opnsense
+  gather_facts: no
+  collections:
+    - ansibleguy.opnsense
+
+  tasks:
+    # 2.e - Activer Suricata IDS
+    - name: Activer Suricata IDS
+      ansibleguy.opnsense.ids_general:
+        enabled: true
+        interfaces: ['lan']  # ou l'interface correspondante
+        block: true
+
+    - name: Activer mise à jour automatique des règles IDS
+      ansibleguy.opnsense.ids_updates:
+        enabled: true
+
+    - name: Télécharger les dernières règles IDS
+      ansibleguy.opnsense.ids_update_rules:
+        state: latest
+
+    # 2.f - Activer Squid proxy web
+    - name: Activer le proxy web Squid
+      ansibleguy.opnsense.webproxy_general:
+        enabled: true
+        log: true
+        log_target: 'file'
+
+    - name: Activer le mode transparent HTTP/HTTPS
+      ansibleguy.opnsense.webproxy_forward:
+        transparent_http: true
+        transparent_https: true

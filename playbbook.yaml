@@ -46,25 +46,24 @@
           - set nat source rule 100 translation address masquerade
         save: true
 
-    # 2.d - Règles de firewall
-    - name: Créer les règles de firewall IPv4
-      vyos_config:
-        lines:
-          - set firewall ipv4 name FROM_DMZ_TO_LAN default-action drop
-          - set firewall ipv4 name FROM_DMZ_TO_LAN rule 10 action accept
-          - set firewall ipv4 name FROM_DMZ_TO_LAN rule 10 source address '192.168.10.0/24'
-          - set firewall ipv4 name FROM_DMZ_TO_LAN rule 10 destination address '192.168.20.0/24'
+    - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
+      block:
 
-          - set firewall ipv4 name FROM_LAN_TO_ADMIN default-action drop
-          - set firewall ipv4 name FROM_LAN_TO_ADMIN rule 10 action accept
-          - set firewall ipv4 name FROM_LAN_TO_ADMIN rule 10 source address '192.168.20.0/24'
-          - set firewall ipv4 name FROM_LAN_TO_ADMIN rule 10 destination address '10.10.5.3'
+        - name: Vérifier si la configuration FROM_ANSIBLE existe déjà
+          vyos.vyos.vyos_command:
+            commands: "show configuration commands | grep FROM_ANSIBLE"
+          register: from_ansible_output
 
-          - set interfaces ethernet eth2 vif 10 firewall ipv4 input name FROM_DMZ_TO_LAN
-          - set interfaces ethernet eth2 vif 20 firewall ipv4 input name FROM_LAN_TO_ADMIN
-        save: true
-
----
+        - name: Appliquer la règle FROM_ANSIBLE si absente
+          vyos.vyos.vyos_config:
+            lines:
+              - set firewall ipv4 name FROM_ANSIBLE default-action drop
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 action accept
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 source address '10.10.5.3'
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 destination address '10.10.5.2'
+              - set interfaces ethernet eth1 firewall ipv4 name FROM_ANSIBLE
+            save: true
+          when: from_ansible_output.stdout[0] == ""
 
 # === CONFIGURATION D'OPNSENSE VIA API REST ===
 - name: Configuration des règles OPNsense via API REST

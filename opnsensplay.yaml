@@ -16,7 +16,7 @@
         destination_port: 443  # alias not supported, leave unset for 'any'
         protocol: 'TCP'
         description: 'Generic test'
-        match_fields: ['description']
+        match_fields: ['allow web']
         # sequence: 1
         # action: 'pass'
         # quick: true
@@ -42,3 +42,6 @@
     - name: Printing rules
       ansible.bultin.debug:
         var: existing_entries.data
+
+
+        #f99zbDtlGWGQsnqSzhuXEjuyuPUv5uWuRsBQe68W3upm3n/ko290lJ811vhmdyh4kAWD0Ds0nlK+dasx

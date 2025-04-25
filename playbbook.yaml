@@ -36,15 +36,29 @@
           - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 stop '192.168.20.200'
         save: true
 
-    # 2.c - NAT
-    - name: Ajouter une règle NAT pour l'accès Internet depuis Ansible
-      vyos_config:
-        lines:
-          - set nat source rule 100 description 'internet_ansible'
-          - set nat source rule 100 source address '10.10.5.0/24'
-          - set nat source rule 100 outbound-interface eth0
-          - set nat source rule 100 translation address masquerade
-        save: true
+    # 2.c - NAT pour que Ansible accède à OPNsense
+    - name: Vérifier si la règle NAT 100 existe déjà
+      block:
+
+        - name: Vérifier si la règle NAT 100 existe déjà
+          vyos.vyos.vyos_command:
+            commands: "show nat source rules"
+          register: nat_output
+
+        - name: Afficher un message si la règle NAT 100 existe déjà
+          debug:
+            msg: "OK, la règle NAT 100 existe déjà."
+          when: "'rule 100' in nat_output.stdout[0]"
+
+        - name: Ajouter la règle NAT 100 si elle n'existe pas
+          vyos.vyos.vyos_config:
+            lines:
+              - set nat source rule 100 description 'internet_ansible'
+              - set nat source rule 100 source address '10.10.5.0/24'
+              - set nat source rule 100 outbound-interface eth0
+              - set nat source rule 100 translation address masquerade
+            save: true
+          when: "'rule 100' not in nat_output.stdout[0]"
 
     - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
       block:

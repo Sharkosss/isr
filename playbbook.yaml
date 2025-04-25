@@ -59,6 +59,8 @@
             save: true
           when: "'rule 100' not in nat_output.stdout[0]"
 
+
+# D
     - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
       block:
 
@@ -74,7 +76,7 @@
               - set firewall ipv4 name FROM_ANSIBLE rule 10 action accept
               - set firewall ipv4 name FROM_ANSIBLE rule 10 source address '10.10.5.3'
               - set firewall ipv4 name FROM_ANSIBLE rule 10 destination address '10.10.5.2'
-              - set interfaces ethernet eth1 firewall ipv4 name FROM_ANSIBLE
+              - set interfaces ethernet eth1 firewall ipv4 input name FROM_ANSIBLE
             save: true
           when: from_ansible_output.stdout[0] == ""
 

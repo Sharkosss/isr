@@ -53,15 +53,171 @@
         - name: Ajouter la règle NAT 100 si elle n'existe pas
           vyos.vyos.vyos_config:
             lines:
-              - set nat source rule 100 description 'internet_ansible'
-              - set nat source rule 100 source address '10.10.5.0/24'
-              - set nat source rule 100 outbound-interface eth0
-              - set nat source rule 100 translation address masquerade
+set nat source rule 100 description 'internet_ansible'
+set nat source rule 100 source address '10.10.5.0/24'
+set nat source rule 100 translation address '10.10.4.2'
             save: true
           when: "'rule 100' not in nat_output.stdout[0]"
 
     - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
       block:
+# === CONFIGURATION DE VYOS ===
+- name: Configuration complète de VyOS
+  hosts: firewalls
+  gather_facts: no
+  connection: network_cli
+  collections:
+    - vyos.vyos
+
+  tasks:
+
+    # 2.a - Interfaces réseau
+    - name: Configurer les interfaces IP
+      vyos_config:
+        lines:
+          - set interfaces ethernet eth0 address '10.10.4.2/24'
+          - set interfaces ethernet eth1 address '10.10.5.2/24'
+        save: true
+
+    # 2.b - VLANs et DHCP
+    - name: Configurer les VLANs et le serveur DHCP
+      vyos_config:
+        lines:
+          - set interfaces ethernet eth2 vif 10 address '192.168.10.1/24'
+          - set interfaces ethernet eth2 vif 20 address '192.168.20.1/24'
+
+          # DHCP VLAN 10
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 option default-router '192.168.10.1'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 start '192.168.10.100'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 stop '192.168.10.200'
+
+          # DHCP VLAN 20
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 option default-router '192.168.20.1'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 start '192.168.20.100'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 stop '192.168.20.200'
+        save: true
+
+    # 2.c - NAT pour que Ansible accède à OPNsense
+    - name: Vérifier si la règle NAT 100 existe déjà
+      block:
+
+        - name: Vérifier si la règle NAT 100 existe déjà
+          vyos.vyos.vyos_command:
+            commands: "show nat source rules"
+          register: nat_output
+
+        - name: Afficher un message si la règle NAT 100 existe déjà
+          debug:
+            msg: "OK, la règle NAT 100 existe déjà."
+          when: "'rule 100' in nat_output.stdout[0]"
+
+        - name: Ajouter la règle NAT 100 si elle n'existe pas
+          vyos.vyos.vyos_config:
+            lines:
+              - set nat source rule 100 description 'internet_ansible'
+              - set nat source rule 100 source address '10.10.5.0/24'
+              - set nat source rule 100 translation address '10.10.4.2'
+            save: true
+          when: "'rule 100' not in nat_output.stdout[0]"
+
+    - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
+      block:
+
+        - name: Vérifier si la configuration FROM_ANSIBLE existe déjà
+          vyos.vyos.vyos_command:
+            commands: "show configuration commands | grep FROM_ANSIBLE"
+          register: from_ansible_output
+
+        - name: Appliquer la règle FROM_ANSIBLE si absente
+          vyos.vyos.vyos_config:
+            lines:
+              - set firewall ipv4 name FROM_ANSIBLE default-action drop
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 action accept
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 source address '10.10.5.3'
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 destination address '10.10.5.2'
+              - set interfaces ethernet eth1 firewall ipv4 name FROM_ANSIBLE
+            save: true
+          when: from_ansible_output.stdout[0] == ""
+
+# === CONFIGURATION OPNsense VIA API REST avec vérification ===
+- name: Configuration des règles OPNsense via API REST (avec vérification)
+  hosts: opnsense
+  gather_facts: no
+
+  vars:
+    api_user: root
+    api_pass: root
+    api_url_base: "https://10.10.4.1/api/firewall"
+    api_auth_header: "Basic {{ (api_user + ':' + api_pass) | b64encode }}"
+    firewall_rules:
+      - id: "ansible"
+        description: "Accès total Ansible"
+        source: "10.10.5.3"
+        destination: "any"
+        action: "pass"
+
+      - id: "client_vulnerable"
+        description: "Isolation client vulnérable"
+        source: "10.10.3.2"
+        destination: "any"
+        action: "block"
+
+      - id: "vlan10"
+        description: "VLAN10 vers Internet"
+        source: "192.168.10.0/24"
+        destination: "any"
+        action: "pass"
+
+      - id: "vlan20"
+        description: "VLAN20 vers Internet"
+        source: "192.168.20.0/24"
+        destination: "any"
+        action: "pass"
+
+  tasks:
+
+    - name: Vérifier et appliquer les règles firewall si absentes
+      block:
+        - name: Vérifier si la règle {{ item.description }} existe
+          uri:
+            url: "{{ api_url_base }}/rule/search"
+            method: POST
+            validate_certs: no
+            headers:
+              Content-Type: "application/json"
+              Authorization: "{{ api_auth_header }}"
+            body_format: json
+            body:
+              rule:
+                description: "{{ item.description }}"
+          register: rule_check
+          failed_when: false
+          loop: "{{ firewall_rules }}"
+          loop_control:
+            label: "{{ item.description }}"
+
+        - name: Créer la règle si elle n'existe pas
+          uri:
+            url: "{{ api_url_base }}/rule/add"
+            method: POST
+            validate_certs: no
+            headers:
+              Content-Type: "application/json"
+              Authorization: "{{ api_auth_header }}"
+            body_format: json
+            body:
+              rule:
+                interface: "lan"
+                source: "{{ item.source }}"
+                destination: "{{ item.destination }}"
+                action: "{{ item.action }}"
+                description: "{{ item.description }}"
+          when: rule_check.json.data | length == 0
+          loop: "{{ firewall_rules }}"
+          loop_control:
+            label: "{{ item.description }}"
 
         - name: Vérifier si la configuration FROM_ANSIBLE existe déjà
           vyos.vyos.vyos_command:

@@ -1,74 +1,44 @@
-# === CONFIGURATION OPNsense VIA API REST avec vérification ===
-- name: Configuration des règles OPNsense via API REST (avec vérification)
-  hosts: opnsense
+- hosts: localhost
   gather_facts: no
+  module_defaults:
+    group/ansibleguy.opnsense.all:
+      firewall: 'opnsense.template.ansibleguy.net'
+      api_credential_file: '/home/guy/.secret/opn.key'
 
-  vars:
-    api_user: root
-    api_pass: root
-    api_url_base: "https://10.10.4.1/api/firewall"
-    api_auth_header: "Basic {{ (api_user + ':' + api_pass) | b64encode }}"
-    firewall_rules:
-      - id: "ansible"
-        description: "Accès total Ansible"
-        source: "10.10.5.3"
-        destination: "any"
-        action: "pass"
-
-      - id: "client_vulnerable"
-        description: "Isolation client vulnérable"
-        source: "10.10.3.2"
-        destination: "any"
-        action: "block"
-
-      - id: "vlan10"
-        description: "VLAN10 vers Internet"
-        source: "192.168.10.0/24"
-        destination: "any"
-        action: "pass"
-
-      - id: "vlan20"
-        description: "VLAN20 vers Internet"
-        source: "192.168.20.0/24"
-        destination: "any"
-        action: "pass"
+    ansibleguy.opnsense.list:
+      target: 'rule'
 
   tasks:
+    - name: Example
+      ansibleguy.opnsense.rule:
+        source_net: '10.10.4.0/24'  # host, network, alias or 'any'
+        destination_net: '10.1.91.140/24'
+        destination_port: 443  # alias not supported, leave unset for 'any'
+        protocol: 'TCP'
+        description: 'Generic test'
+        match_fields: ['description']
+        # sequence: 1
+        # action: 'pass'
+        # quick: true
+        # interface: 'lan'
+        # direction: 'in'
+        # ip_protocol: 'inet' or 'inet6'
+        # source_invert: false
+        # source_port: ''
+        # destination_invert: false
+        # log: true
+        # gateway: 'LAN_GW'
+        # state: 'present'
+        enabled: true
+        # uuid: 'a9d85c00-0aa2-4705-b855-96aae16e05d7'  # optionally use uuid to identify existing rules
+        # debug: true
+        reload: true
 
-    - name: Vérifier et appliquer les règles firewall si absentes
-      block:
-        - name: Vérifier si la règle {{ item.description }} existe
-          uri:
-            url: "{{ api_url_base }}/rule/search"
-            method: POST
-            validate_certs: no
-            headers:
-              Content-Type: "application/json"
-              Authorization: "{{ api_auth_header }}"
-            body_format: json
-            body:
-              rule:
-                description: "{{ item.description }}"
-          register: rule_check
-          failed_when: false
+    - name: Listing
+      ansibleguy.opnsense.list:
+      #  target: 'rule'
+      register: existing_entries
 
-        - name: Créer la règle si elle n'existe pas
-          uri:
-            url: "{{ api_url_base }}/rule/add"
-            method: POST
-            validate_certs: no
-            headers:
-              Content-Type: "application/json"
-              Authorization: "{{ api_auth_header }}"
-            body_format: json
-            body:
-              rule:
-                interface: "lan"
-                source: "{{ item.source }}"
-                destination: "{{ item.destination }}"
-                action: "{{ item.action }}"
-                description: "{{ item.description }}"
-          when: rule_check.json.data | length == 0
-          loop: "{{ firewall_rules }}"
-          loop_control:
-            label: "{{ item.description }}"
+    - name: Printing rules
+      ansible.bultin.debug:
+        var: existing_entries.data

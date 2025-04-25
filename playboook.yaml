@@ -1,0 +1,123 @@
+# 2. Configuration de VyOS et des règles OPNsense via Ansible
+- name: Configure VyOS UTM interne
+  hosts: firewalls
+  gather_facts: no
+  connection: network_cli
+  collections:
+    - vyos.vyos
+
+  tasks:
+
+    # 2.a - Config réseau
+    - name: Configurer les adresses IP sur les interfaces VyOS
+      vyos_config:
+        lines:
+          - set interfaces ethernet eth0 address '10.10.4.2/24'
+          - set interfaces ethernet eth1 address '10.10.5.2/24'
+        save: true
+
+    # 2.b - VLANs et DHCP sur eth2 (ancien vmbr2)
+    - name: Configurer les VLANs et DHCP
+      vyos.vyos.vyos_config:
+        lines:
+          - set interfaces ethernet eth2 vif 10 address '192.168.10.1/24'
+          - set interfaces ethernet eth2 vif 20 address '192.168.20.1/24'
+          - set interfaces ethernet eth2 vif 30 address '192.168.30.1/24'
+
+          # VLAN 10
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 subnet-id 1
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 option default-router '192.168.10.1'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 start '192.168.10.100'
+          - set service dhcp-server shared-network-name VLAN10 subnet 192.168.10.0/24 range 0 stop '192.168.10.200'
+
+          # VLAN 20
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 lease '86400'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 subnet-id 2
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 option default-router '192.168.20.1'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 start '192.168.20.100'
+          - set service dhcp-server shared-network-name VLAN20 subnet 192.168.20.0/24 range 0 stop '192.168.20.200'
+        save: true
+
+    # 2.c - NAT pour que Ansible accède à OPNsense
+    - name: Vérifier si la règle NAT 100 existe déjà
+      block:
+
+        - name: Vérifier si la règle NAT 100 existe déjà
+          vyos.vyos.vyos_command:
+            commands: "show nat source rules"
+          register: nat_output
+
+        - name: Afficher un message si la règle NAT 100 existe déjà
+          debug:
+            msg: "OK, la règle NAT 100 existe déjà."
+          when: "'rule 100' in nat_output.stdout[0]"
+
+        - name: Ajouter la règle NAT 100 si elle n'existe pas
+          vyos.vyos.vyos_config:
+            lines:
+              - set nat source rule 100 description 'internet_ansible'
+              - set nat source rule 100 source address '10.10.5.0/24'
+              - set nat source rule 100 outbound-interface eth0
+              - set nat source rule 100 translation address masquerade
+            save: true
+          when: "'rule 100' not in nat_output.stdout[0]"
+
+    # 2.d - Règles de firewall entre zones
+    - name: Appliquer les règles de firewall IPv4 si elles n'existent pas
+      block:
+
+        - name: Récupérer la config du firewall FROM_DMZ_TO_LAN
+          vyos.vyos.vyos_command:
+            commands: "show configuration commands | grep FROM_DMZ_TO_LAN"
+          register: from_dmz_to_lan_output
+
+        - name: Appliquer la règle FROM_ANSIBLE si absente
+          vyos.vyos.vyos_config:
+            lines:
+              - set firewall ipv4 name FROM_ANSIBLE default-action drop
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 action accept
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 source address '10.10.5.3'
+              - set firewall ipv4 name FROM_ANSIBLE rule 10 destination address '10.10.5.2'
+              - set interfaces ethernet eth1 firewall ipv4 name FROM_ANSIBLE
+            save: true
+          when: from_dmz_to_lan_output.stdout[0] == ""
+
+- name: Configuration des règles OPNsense via Ansible
+  hosts: opnsense
+  gather_facts: no
+  collections:
+    - ansibleguy.opnsense
+
+  tasks:
+    - name: Isoler le client vulnérable
+      ansibleguy.opnsense.firewall_rule:
+        action: block
+        interface: lan
+        source: 10.10.3.2
+        destination: any
+        description: "Isolation client vulnérable"
+
+    - name: Autoriser Ansible à accéder à tout
+      ansibleguy.opnsense.firewall_rule:
+        action: pass
+        interface: lan
+        source: 10.10.5.3
+        destination: any
+        description: "Full access pour Ansible"
+
+    - name: Autoriser trafic sortant Internet pour VLAN 10
+      ansibleguy.opnsense.firewall_rule:
+        action: pass
+        interface: lan
+        source: 192.168.10.0/24
+        destination: any
+        description: "VLAN10 vers Internet"
+
+    - name: Autoriser trafic sortant Internet pour VLAN 20
+      ansibleguy.opnsense.firewall_rule:
+        action: pass
+        interface: lan
+        source: 192.168.20.0/24
+        destination: any
+        description: "VLAN20 vers Internet"
